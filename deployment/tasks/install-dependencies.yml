@@ -19,6 +19,7 @@
     state: latest
     name:
       - docker
+      - docker-py
 
 - name: Install prerequisites for Docker repository
   become: true
@@ -103,7 +104,3 @@
     daemon_reload: true
     enabled: true
     state: started
-
-- name: Docker network public
-  docker_network:
-    name: "public"

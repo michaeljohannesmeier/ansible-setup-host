@@ -1,0 +1,31 @@
+---
+
+- name: Prepare host and ensure technical user 'droplet'
+  tags: configure-host
+  remote_user: root
+  hosts: all
+
+  tasks:
+    - import_tasks: tasks/configure-host.yml
+      tags: configure-host
+
+- name: Deploy with user 'droplet'
+  remote_user: droplet
+  hosts: all
+
+  tasks:
+    - name: Get group ids of remote_user on target host
+      command: "id droplet -G"
+      changed_when: false
+      register: droplet_gids
+      failed_when: droplet_gids.stderr != ''
+      tags: always
+
+    - import_tasks: tasks/install-dependencies.yml
+      tags: install-dependencies
+
+    - import_tasks: tasks/run-traefik.yml
+      tags: run-traefik
+
+    - import_tasks: tasks/portainer.yml
+      tags: portainer

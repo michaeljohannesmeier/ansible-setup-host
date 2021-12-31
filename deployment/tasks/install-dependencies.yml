@@ -1,0 +1,109 @@
+---
+
+- name: Install OS packages
+  become: true
+  package:
+    name: "{{ os_packages_list }}"
+    state: present
+
+
+- name: Upgrade pip
+  become: true
+  pip:
+    state: latest
+    name: pip
+
+- name: Install python packages
+  become: true
+  pip:
+    state: latest
+    name:
+      - docker
+
+- name: Install prerequisites for Docker repository
+  become: true
+  apt:
+    name: "{{ docker_prerequesites_packages_list }}"
+    update_cache: no # TODO: this was on yes
+
+- name: Add Docker GPG key
+  become: true
+  apt_key: url=https://download.docker.com/linux/ubuntu/gpg
+
+
+- name: Add Docker APT repository
+  become: true
+  apt_repository:
+    repo: deb [arch=amd64] https://download.docker.com/linux/{{ ansible_distribution|lower }} {{ ansible_distribution_release }} stable
+
+- name: Install Docker CE
+  become: true
+  apt:
+    name: "{{ docker_packages_list }}"
+    update_cache: yes
+
+
+- name: Ensure docker config path
+  become: true
+  file:
+    path: /etc/docker
+    state: directory
+
+- name: Ensure dockerd config file
+  become: true
+  copy:
+    content: "{}" # it's a json file
+    dest: /etc/docker/daemon.json
+    force: false
+    mode: 0664
+
+- name: Slurp docker deaemon config
+  slurp:
+    src: /etc/docker/daemon.json
+  register: daemon_config
+
+- name: Register docker options
+  set_fact:
+    daemon_options:
+      icc: false
+      debug: true
+      storage-driver: overlay2
+      # add more options here!
+
+- name: Add options to docker daemon config
+  set_fact:
+    updated_config: "{{ daemon_config.content|b64decode|from_json | combine(daemon_options) }}"
+
+- name: Write docker daemon config file
+  become: true
+  copy:
+    content: "{{ updated_config|to_nice_json }}"
+    dest: /etc/docker/daemon.json
+  register: daemon_config
+
+- name: Check folder for docker daemon service exists
+  become: true
+  file:
+    path: /etc/systemd/system/docker.service.d
+    state: directory
+    mode: 0751
+
+
+- name: Enforce docker service restart
+  become: true
+  systemd:
+    name: docker
+    state: stopped
+  when: daemon_config is changed
+
+- name: Start docker service
+  become: true
+  systemd:
+    name: docker
+    daemon_reload: true
+    enabled: true
+    state: started
+
+- name: Docker network public
+  docker_network:
+    name: "public"

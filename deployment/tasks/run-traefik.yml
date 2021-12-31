@@ -1,0 +1,58 @@
+---
+
+- name: Ensure traefik config folder
+  become: true
+  file:
+    path: /etc/traefik
+    state: directory
+    mode: 0755
+
+- name: Template static traefik config
+  become: true
+  template:
+    src: traefik.static.yml.j2
+    dest: /etc/traefik/traefik.yml
+    mode: 0664
+  register: config
+
+- name: Template dynamic traefik config
+  become: true
+  template:
+    src: traefik.dynamic.yml.j2
+    dest: /etc/traefik/dynamic-config.yml
+    mode: 0664
+
+- name: Run traefik
+  docker_container:
+    image: "{{ image_version.traefik }}"
+    name: traefik
+    restart_policy: always
+    networks_cli_compatible: true # implies purge_network = true
+    network_mode: host
+    memory: 128M
+    cpu_period: 100000 # 100 µs
+    cpu_quota: 200000 # 2 cpus
+    state: started
+    volumes:
+      - /etc/traefik:/etc/traefik
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+- name: Restart traefik
+  docker_container:
+    name: traefik
+    state: started
+    restart: yes
+    container_default_behavior: compatibility
+  when: config is changed
+
+- name: Wait for traefik
+  wait_for:
+    port: 80
+
+- name: Get health
+  # uri module seems to ignore it's own 'use_proxy' setting. So we
+  # don't use it. We set environment variable no_proxy to not use
+  # the proxy for 'localhost' (see ansible play host's environment!)
+  uri:
+    url: http://localhost/ping
+    status_code: 200

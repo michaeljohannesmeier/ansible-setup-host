@@ -1,0 +1,98 @@
+---
+
+- name: Setup
+  setup:
+  tags:
+    - always
+
+- name: Unmount swap
+  become: true
+  mount:
+    path: swap
+    state: absent
+  register: unmount_swap
+
+- name: Disable swap
+  become: true
+  command: swapoff -a
+  when: unmount_swap is changed
+
+# needed for docker limits (cpu, memory)
+- name: Enable memory and swap accounting for docker
+  become: true
+  lineinfile:
+    path: /etc/default/grub
+    regexp: '^GRUB_CMDLINE_LINUX=\"cgroup_enable=memory swapaccount=1\"'
+    line: 'GRUB_CMDLINE_LINUX="cgroup_enable=memory swapaccount=1"'
+  register: grub_swapping
+
+- name: Reload grub
+  become: true
+  command: update-grub
+  when: grub_swapping is changed
+
+- name: Ensure group 'docker' for user 'droplet'
+  become: true
+  group:
+    name: docker
+
+- name: Ensure user 'droplet'
+  become: true
+  user:
+    name: droplet
+    groups: docker
+    shell: /bin/bash
+
+- name: Ensure folder linger
+  become: true
+  file:
+    path: /var/lib/systemd/linger
+    state: directory
+
+- name: Enable lingering of user 'droplet'
+  become: true
+  copy:
+    dest: /var/lib/systemd/linger/droplet
+    content: ""
+
+- name: Read pubkeys
+  slurp:
+    src: ~/.ssh/authorized_keys
+  register: pubkeys
+  tags:
+    - always
+
+- name: Ensure ssh config folder of user 'droplet'
+  become: true
+  file:
+    dest: /home/droplet/.ssh
+    owner: droplet
+    group: users
+    mode: 0700
+    state: directory
+
+- name: Ensure authorized_keys file of user 'droplet'
+  become: true
+  copy:
+    dest: /home/droplet/.ssh/authorized_keys
+    content: ""
+    force: false
+    owner: droplet
+    group: users
+    mode: 0600
+
+- name: Ensure login as user 'droplet'
+  become: true
+  blockinfile:
+    dest: /home/droplet/.ssh/authorized_keys
+    block: "{{ pubkeys['content'] | b64decode }}"
+    marker: "# {mark} KEYS OF USER {{ lookup('pipe', 'id --user --name') }}"
+  tags:
+    - always
+
+- name: Provide sudo to user 'droplet'
+  become: true
+  copy:
+    dest: "/etc/sudoers.d/droplet"
+    content: "droplet ALL=(ALL) NOPASSWD: ALL"
+    validate: /usr/sbin/visudo -cf %s

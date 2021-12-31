@@ -1,0 +1,31 @@
+- name: Create docker volume portainer
+  docker_volume:
+    name: portainer
+
+- name: Run image portainer
+  docker_container:
+    name: portainer
+    image: "{{ image_version.portainer }}"
+    debug: True
+    restart_policy: always
+    container_default_behavior: compatibility
+    volumes:
+      - portainer_data:/data portainer/portainer
+      - /var/run/docker.sock:/var/run/docker.sock
+    detach: yes
+    command: --admin-password "{{ vault_portainer.pass_bcrypt }}"
+    networks_cli_compatible: true # implies purge_network = true
+    networks:
+      - name: public
+    network_mode: default
+    memory: 128M
+    cpu_period: 100000 # 100 µs
+    cpu_quota: 1000 # 1 % cpu
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.portainer.entryPoints: "websecure"
+      traefik.http.routers.portainer.tls: "true"
+      traefik.docker.network: "public"
+      traefik.http.routers.portainer.rule: "Host(`{{ domain }}`) && PathPrefix(`/portainer/`)"
+      traefik.http.routers.portainer.middlewares: "portainer-stripprefix@docker"
+      traefik.http.middlewares.portainer-stripprefix.stripprefix.prefixes: "/portainer"
